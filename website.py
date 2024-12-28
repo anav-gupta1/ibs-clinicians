@@ -20,7 +20,7 @@ from sklearn.inspection import permutation_importance
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import random
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cpu')  # Force CPU usage for Streamlit Cloud
 
 def set_seed(seed=42):
     random.seed(seed)
@@ -154,12 +154,14 @@ def analyze_symptom_severity_matrix(df, target_symptom):
         test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32)
         
         # Initialize model with same architecture
-        model = MatrixBasedAcidityNet(
+        model = init_model(
             input_dim=X_pca.shape[1],
             hidden_dim=128,
             output_dim=n_classes,
             feature_names=feature_names
-        ).to(device)
+        )
+        if model is None:
+            return None, None, None, None, None, None, None
         
         # Training setup with scheduler
         criterion = nn.CrossEntropyLoss()
@@ -360,6 +362,19 @@ def calculate_permutation_importance(model, X, y, metric='accuracy', n_repeats=5
         importance_scores.append(np.mean(feature_scores))
     
     return np.array(importance_scores)
+
+def init_model(input_dim, hidden_dim, output_dim, feature_names):
+    try:
+        model = MatrixBasedAcidityNet(
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            output_dim=output_dim,
+            feature_names=feature_names
+        ).to(device)
+        return model
+    except Exception as e:
+        st.error(f"Model initialization error: {str(e)}")
+        return None
 
 def main():
     # Set page config and theme
