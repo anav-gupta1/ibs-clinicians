@@ -371,6 +371,12 @@ def init_model(input_dim, hidden_dim, output_dim, feature_names):
             output_dim=output_dim,
             feature_names=feature_names
         ).to(device)
+        
+        # Add a test forward pass to verify model works
+        test_input = torch.randn(1, input_dim).to(device)
+        with torch.no_grad():
+            _ = model(test_input)
+            
         return model
     except Exception as e:
         st.error(f"Model initialization error: {str(e)}")

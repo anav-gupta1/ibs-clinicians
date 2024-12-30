@@ -1,7 +1,9 @@
-streamlit
-pandas
-numpy
-torch
-scikit-learn
-plotly
-seaborn
+torch==2.1.0
+torchvision==0.16.0
+torchaudio==2.1.0
+streamlit==1.29.0
+pandas==2.1.3
+numpy==1.26.2
+scikit-learn==1.3.2
+plotly==5.18.0
+seaborn==0.13.0
