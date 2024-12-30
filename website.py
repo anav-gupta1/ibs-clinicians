@@ -115,59 +115,90 @@ def analyze_symptom_severity_matrix(df, target_symptom):
         df = df.fillna(0)
         
         # Prepare features and target
-        X = df.drop(columns=[target_symptom])
-        y = df[target_symptom]
-        feature_names = X.columns.tolist()
-        
-        # Encode target variable
-        label_encoder = LabelEncoder()
-        y_encoded = label_encoder.fit_transform(y)
-        n_classes = len(label_encoder.classes_)
-        
-        # Scale features
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-        
-        # Apply PCA with more components (like in CLI version)
-        pca = PCA(n_components=1024)  # Match CLI version
-        X_pca = pca.fit_transform(X_scaled)
-        
-        # Add clustering and oversampling
-        kmeans = KMeans(n_clusters=10, random_state=42)
-        clusters = kmeans.fit_predict(X_pca)
-        X_resampled, y_resampled = cluster_based_oversampling(X_pca, y_encoded, clusters)
-        
-        # Create datasets and dataloaders
-        X_tensor = torch.FloatTensor(X_resampled).to(device)
-        y_tensor = torch.LongTensor(y_resampled).to(device)
-        
-        dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
-        train_size = int(0.8 * len(dataset))
-        test_size = len(dataset) - train_size
-        train_dataset, test_dataset = torch.utils.data.random_split(
-            dataset,
-            [train_size, test_size],
-            generator=torch.Generator().manual_seed(42)
-        )
-        
-        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True)
-        test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32)
-        
-        # Initialize model with same architecture
-        model = init_model(
-            input_dim=X_pca.shape[1],
-            hidden_dim=128,
-            output_dim=n_classes,
-            feature_names=feature_names
-        )
-        if model is None:
+        try:
+            X = df.drop(columns=[target_symptom])
+            y = df[target_symptom]
+            feature_names = X.columns.tolist()
+        except KeyError as e:
+            st.error(f"Error preparing data: Column '{target_symptom}' not found in dataset")
             return None, None, None, None, None, None, None
         
-        # Training setup with scheduler
-        criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-        scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=True)
-        
+        try:
+            # Encode target variable
+            label_encoder = LabelEncoder()
+            y_encoded = label_encoder.fit_transform(y)
+            n_classes = len(label_encoder.classes_)
+        except Exception as e:
+            st.error(f"Error encoding target variable: {str(e)}")
+            return None, None, None, None, None, None, None
+
+        try:
+            # Scale features and PCA
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+            pca = PCA(n_components=min(1024, X_scaled.shape[1]))  # Ensure components don't exceed features
+            X_pca = pca.fit_transform(X_scaled)
+        except Exception as e:
+            st.error(f"Error in feature scaling/PCA: {str(e)}")
+            return None, None, None, None, None, None, None
+
+        try:
+            # Clustering and oversampling
+            kmeans = KMeans(n_clusters=min(10, len(X_pca)), random_state=42)  # Ensure clusters don't exceed samples
+            clusters = kmeans.fit_predict(X_pca)
+            X_resampled, y_resampled = cluster_based_oversampling(X_pca, y_encoded, clusters)
+        except Exception as e:
+            st.error(f"Error in clustering/oversampling: {str(e)}")
+            return None, None, None, None, None, None, None
+
+        try:
+            # Create datasets and dataloaders
+            X_tensor = torch.FloatTensor(X_resampled).to(device)
+            y_tensor = torch.LongTensor(y_resampled).to(device)
+            
+            dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
+            if len(dataset) < 2:
+                st.error("Dataset too small for training")
+                return None, None, None, None, None, None, None
+
+            train_size = int(0.8 * len(dataset))
+            test_size = len(dataset) - train_size
+            train_dataset, test_dataset = torch.utils.data.random_split(
+                dataset,
+                [train_size, test_size],
+                generator=torch.Generator().manual_seed(42)
+            )
+            
+            train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=min(32, len(train_dataset)), shuffle=True)
+            test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=min(32, len(test_dataset)))
+        except Exception as e:
+            st.error(f"Error creating data loaders: {str(e)}")
+            return None, None, None, None, None, None, None
+
+        # Initialize model with error handling
+        try:
+            model = init_model(
+                input_dim=X_pca.shape[1],
+                hidden_dim=128,
+                output_dim=n_classes,
+                feature_names=feature_names
+            )
+            if model is None:
+                st.error("Model initialization failed")
+                return None, None, None, None, None, None, None
+        except Exception as e:
+            st.error(f"Error initializing model: {str(e)}")
+            return None, None, None, None, None, None, None
+
+        # Training setup with error handling
+        try:
+            criterion = nn.CrossEntropyLoss()
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+            scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=True)
+        except Exception as e:
+            st.error(f"Error setting up training components: {str(e)}")
+            return None, None, None, None, None, None, None
+
         # Training with early stopping
         best_accuracy = 0
         patience = 15
@@ -253,8 +284,8 @@ def analyze_symptom_severity_matrix(df, target_symptom):
         return model, scaler, pca, label_encoder, feature_importance, metrics, conf_matrix
 
     except Exception as e:
-        st.error(f"An error occurred: {str(e)}")
-        raise e
+        st.error(f"An unexpected error occurred: {str(e)}")
+        return None, None, None, None, None, None, None
 
 # Neural Network Model
 class MatrixBasedAcidityNet(nn.Module):
@@ -365,6 +396,9 @@ def calculate_permutation_importance(model, X, y, metric='accuracy', n_repeats=5
 
 def init_model(input_dim, hidden_dim, output_dim, feature_names):
     try:
+        if input_dim <= 0 or hidden_dim <= 0 or output_dim <= 0:
+            raise ValueError("Model dimensions must be positive")
+            
         model = MatrixBasedAcidityNet(
             input_dim=input_dim,
             hidden_dim=hidden_dim,
@@ -372,12 +406,16 @@ def init_model(input_dim, hidden_dim, output_dim, feature_names):
             feature_names=feature_names
         ).to(device)
         
-        # Add a test forward pass with a batch size of 2
-        test_input = torch.randn(2, input_dim).to(device)  # Changed from 1 to 2
-        model.eval()  # Set to evaluation mode for the test
-        with torch.no_grad():
-            _ = model(test_input)
-        model.train()  # Set back to training mode
+        # Test forward pass with error handling
+        try:
+            test_input = torch.randn(2, input_dim).to(device)
+            model.eval()
+            with torch.no_grad():
+                _ = model(test_input)
+            model.train()
+        except RuntimeError as e:
+            st.error(f"Model forward pass test failed: {str(e)}")
+            return None
             
         return model
     except Exception as e:
