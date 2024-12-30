@@ -372,10 +372,12 @@ def init_model(input_dim, hidden_dim, output_dim, feature_names):
             feature_names=feature_names
         ).to(device)
         
-        # Add a test forward pass to verify model works
-        test_input = torch.randn(1, input_dim).to(device)
+        # Add a test forward pass with a batch size of 2
+        test_input = torch.randn(2, input_dim).to(device)  # Changed from 1 to 2
+        model.eval()  # Set to evaluation mode for the test
         with torch.no_grad():
             _ = model(test_input)
+        model.train()  # Set back to training mode
             
         return model
     except Exception as e:
